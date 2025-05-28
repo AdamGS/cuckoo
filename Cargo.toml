@@ -1,0 +1,15 @@
+[package]
+name = "cuckoo-runtime"
+description = "An async runtime that mostly runs inside other multi-threaded applications"
+authors = ["Adam Gutglick <adamgsal@gmail.com>"]
+version = "0.0.1"
+edition = "2024"
+repository = "https://github.com/adamgs/cuckoo"
+license = "MIT"
+
+[dependencies]
+async-task = "4.7.1"
+crossbeam = "0.8.4"
+futures = "0.3.31"
+parking_lot = "0.12.3"
+pin-project-lite = "0.2.16"
