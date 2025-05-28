@@ -1,3 +1,15 @@
+//! A work-stealing runtime to run async CPU-heavy rust workloads inside multi-threaded applications.
+//!
+//! The main idea behind Cuckoo is that some systems already have opinionated threading models, and spinning up additional threads
+//! just to run some async code might cause increased core contention and hurt overall performance.
+//!
+//! Cuckoo is mostly intended to run async code in a block fashion (within `block_on` blocks), and while a thread is waiting on
+//! some future, it can take work from other threads and make some progress on them.
+//!
+//! ## Current Status
+//!
+//! Cuckoo is completely experimental, it might deadlock, cause unexpected behavior or is probably not very fast.
+
 use std::{
     sync::Arc,
     thread::{self, ThreadId},
@@ -13,11 +25,15 @@ thread_local! {
     static WORK_QUEUE: Worker<Runnable> = Worker::new_fifo();
 }
 
+/// The main runtime instance, holds all global state and thread-specific handles are created by it.
 pub struct Runtime {
     injector: Arc<Injector<Runnable>>,
     stealers: Arc<DashMap<ThreadId, Stealer<Runnable>>>,
 }
 
+/// A handle to the runtime that can be cloned and sent across threads.
+///
+/// Right now the underlying work queue is thread-local, overtime there might also be a thread-local variant of the handel that can't be sent to other threads.
 #[derive(Clone)]
 pub struct Handle {
     injector: Arc<Injector<Runnable>>,
@@ -50,7 +66,7 @@ impl Runtime {
         let injector: Arc<Injector<Runnable>> = Arc::new(Injector::new());
         for _ in 0..background_threads {
             std::thread::spawn({
-                let injector = injector.clone();
+                let injector = Arc::clone(&injector);
                 move || {
                     loop {
                         if let Some(task) = injector.steal().success() {
@@ -73,18 +89,24 @@ impl Runtime {
         }
     }
 
+    /// Spawn a future to run in the background. The future can make progress by any participating thread.
+    ///
+    /// If the runtime doesn't have any background threads, the [`JoinHandle`] should be polled/awaited explicitly.
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + Sync,
     {
-        let injector = self.injector.clone();
+        let injector = Arc::clone(&self.injector);
         let schedule = move |runnable| injector.push(runnable);
         let (runnable, task) = async_task::spawn(future, schedule);
         runnable.schedule();
         JoinHandle { task }
     }
 
+    /// Run a future, blocking the current thread until its done.
+    ///
+    /// The future might end up running on a different thread, and this thread might make progress on other futures before returning.
     pub fn block_on<F>(&self, future: F) -> F::Output
     where
         F: Future + Send + 'static,
@@ -95,13 +117,16 @@ impl Runtime {
 }
 
 impl Handle {
+    /// Run a future, blocking the current thread until its done.
+    ///
+    /// The future might end up running on a different thread, and this thread might make progress on other futures before returning.
     pub fn block_on<F>(&self, future: F) -> F::Output
     where
         F: Future + Send + 'static,
         F::Output: Send + Sync,
     {
         let schedule = {
-            let stealers = self.stealers.clone();
+            let stealers = Arc::clone(&self.stealers);
             move |runnable| {
                 WORK_QUEUE.with(|q| {
                     // Make sure this thread's stealer is populated
@@ -124,12 +149,15 @@ impl Handle {
         futures::executor::block_on(task)
     }
 
+    /// Spawn a future to run in the background. The future can make progress by any participating thread.
+    ///
+    /// If the runtime doesn't have any background threads, the [`JoinHandle`] should be polled/awaited explicitly.
     pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + Sync,
     {
-        let injector = self.injector.clone();
+        let injector = Arc::clone(&self.injector);
         let schedule = move |runnable| injector.push(runnable);
         let (runnable, task) = async_task::spawn(future, schedule);
         runnable.schedule();
