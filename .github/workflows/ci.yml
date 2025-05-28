@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: { }
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-nextest
+      - name: Cargo Test
+        shell: bash
+        run: |
+          cargo nextest run --all-targets --no-fail-fast
+      - name: Cargo Clippy
+        shell: bash
+        run: |
+          cargo clippy --workspace --all-targets --all-features
