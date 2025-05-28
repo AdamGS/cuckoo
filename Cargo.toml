@@ -13,3 +13,6 @@ crossbeam = "0.8.4"
 futures = "0.3.31"
 parking_lot = "0.12.3"
 pin-project-lite = "0.2.16"
+
+[dev-dependencies]
+rstest = "0.25.0"

@@ -3,7 +3,6 @@ use std::{
     rc::Rc,
     sync::Arc,
     thread::{self, ThreadId},
-    time::Duration,
 };
 
 use async_task::{Runnable, Task};
@@ -86,6 +85,14 @@ impl Runtime {
         runnable.schedule();
         JoinHandle { task }
     }
+
+    pub fn block_on<F>(&self, future: F) -> F::Output
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + Sync,
+    {
+        self.handle().block_on(future)
+    }
 }
 
 impl Handle {
@@ -113,8 +120,6 @@ impl Handle {
         while !task.is_finished() {
             if let Some(stolen_task) = self.find_task() {
                 stolen_task.run();
-            } else {
-                std::thread::sleep(Duration::from_millis(1));
             }
         }
 
@@ -151,24 +156,29 @@ impl Handle {
 #[cfg(test)]
 mod tests {
 
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
-    fn test_basic() {
-        let rt = Runtime::new(1);
-        let jh = rt.spawn(async move { println!("spawned task!") });
+    #[rstest]
+    #[case(0)]
+    #[case(1)]
+    fn test_basic(#[case] thread_count: usize) {
+        let rt = Runtime::new(thread_count);
+        let jh: JoinHandle<()> = rt.spawn(async move { println!("spawned task!") });
         let handle = rt.handle();
         let h2 = handle.clone();
 
         handle.block_on(async move {
-            let jh2 = h2.spawn(async move {
-                println!("another spawn!");
+            _ = h2.spawn(async move {
+                if thread_count == 0 {
+                    panic!("This should never run");
+                }
             });
             println!("blocking here!");
-            jh2.await;
             println!("Awaited the second future");
         });
         println!("Finished block_on block");
-        futures::executor::block_on(jh);
+        rt.block_on(jh);
     }
 }
