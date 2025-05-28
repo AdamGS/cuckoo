@@ -138,7 +138,8 @@ impl Handle {
             }
         };
         let (runnable, task) = async_task::spawn(future, schedule);
-        runnable.schedule();
+        // I think we want to call `run` here to prioritize the existing task before we start stealing work from other threads.
+        runnable.run();
 
         while !task.is_finished() {
             if let Some(stolen_task) = self.find_task() {
