@@ -1,12 +1,12 @@
 use std::{
-    collections::HashMap,
     sync::Arc,
     thread::{self, ThreadId},
 };
 
 use async_task::{Runnable, Task};
 use crossbeam::deque::{Injector, Stealer, Worker};
-use parking_lot::RwLock;
+use dashmap::DashMap;
+
 use pin_project_lite::pin_project;
 
 thread_local! {
@@ -15,13 +15,13 @@ thread_local! {
 
 pub struct Runtime {
     injector: Arc<Injector<Runnable>>,
-    stealers: Arc<RwLock<HashMap<ThreadId, Stealer<Runnable>>>>,
+    stealers: Arc<DashMap<ThreadId, Stealer<Runnable>>>,
 }
 
 #[derive(Clone)]
 pub struct Handle {
     injector: Arc<Injector<Runnable>>,
-    stealers: Arc<RwLock<HashMap<ThreadId, Stealer<Runnable>>>>,
+    stealers: Arc<DashMap<ThreadId, Stealer<Runnable>>>,
 }
 
 pin_project! {
@@ -62,7 +62,7 @@ impl Runtime {
         }
         Self {
             injector,
-            stealers: Arc::new(RwLock::new(HashMap::default())),
+            stealers: Arc::new(DashMap::new()),
         }
     }
 
@@ -106,7 +106,6 @@ impl Handle {
                 WORK_QUEUE.with(|q| {
                     // Make sure this thread's stealer is populated
                     stealers
-                        .write()
                         .entry(thread::current().id())
                         .or_insert(q.stealer());
                     q.push(runnable);
@@ -144,7 +143,7 @@ impl Handle {
                 std::iter::repeat_with(|| {
                     self.injector
                         .steal_batch_with_limit_and_pop(local, 1)
-                        .or_else(|| self.stealers.read().values().map(|s| s.steal()).collect())
+                        .or_else(|| self.stealers.iter().map(|s| s.steal()).collect())
                 })
                 .find(|s| !s.is_retry())
                 .and_then(|s| s.success())

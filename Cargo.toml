@@ -10,6 +10,7 @@ license = "MIT"
 [dependencies]
 async-task = "4.7.1"
 crossbeam = "0.8.4"
+dashmap = "6.1.0"
 futures = "0.3.31"
 parking_lot = "0.12.3"
 pin-project-lite = "0.2.16"
