@@ -6,12 +6,18 @@ on:
       - main
   pull_request: { }
 
+
+env:
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@cargo-nextest
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - name: Cargo Test
         shell: bash
         run: |
