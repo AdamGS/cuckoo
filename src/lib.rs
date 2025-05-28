@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    rc::Rc,
     sync::Arc,
     thread::{self, ThreadId},
 };
@@ -11,7 +10,7 @@ use parking_lot::RwLock;
 use pin_project_lite::pin_project;
 
 thread_local! {
-    static WORK_QUEUE: Rc<Worker<Runnable>> = Rc::new(Worker::new_fifo());
+    static WORK_QUEUE: Worker<Runnable> = Worker::new_fifo();
 }
 
 pub struct Runtime {
@@ -139,16 +138,17 @@ impl Handle {
     }
 
     fn find_task(&self) -> Option<Runnable> {
-        let local = WORK_QUEUE.with(Rc::clone);
-        // Pop a task from the local queue, if not empty.
-        local.pop().or_else(|| {
-            std::iter::repeat_with(|| {
-                self.injector
-                    .steal_batch_with_limit_and_pop(local.as_ref(), 1)
-                    .or_else(|| self.stealers.read().values().map(|s| s.steal()).collect())
+        WORK_QUEUE.with(|local| {
+            // Pop a task from the local queue, if not empty.
+            local.pop().or_else(|| {
+                std::iter::repeat_with(|| {
+                    self.injector
+                        .steal_batch_with_limit_and_pop(local, 1)
+                        .or_else(|| self.stealers.read().values().map(|s| s.steal()).collect())
+                })
+                .find(|s| !s.is_retry())
+                .and_then(|s| s.success())
             })
-            .find(|s| !s.is_retry())
-            .and_then(|s| s.success())
         })
     }
 }
