@@ -16,7 +16,7 @@ use std::{
 };
 
 use async_task::Runnable;
-use crossbeam::deque::{Injector, Stealer, Worker};
+use crossbeam::deque::{Injector, Steal, Stealer, Worker};
 use dashmap::DashMap;
 
 pub mod futures;
@@ -159,13 +159,10 @@ impl Handle {
         WORK_QUEUE.with(|local| {
             // Pop a task from the local queue, if not empty.
             local.pop().or_else(|| {
-                std::iter::repeat_with(|| {
-                    self.injector
-                        .steal_batch_with_limit_and_pop(local, 1)
-                        .or_else(|| self.stealers.iter().map(|s| s.steal()).collect())
-                })
-                .find(|s| !s.is_retry())
-                .and_then(|s| s.success())
+                self.injector
+                    .steal_batch_with_limit_and_pop(local, 1)
+                    .or_else(|| Steal::from_iter(self.stealers.iter().map(|s| s.steal())))
+                    .success()
             })
         })
     }
