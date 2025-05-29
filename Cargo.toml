@@ -2,7 +2,7 @@
 name = "cuckoo-runtime"
 description = "An async runtime that mostly runs inside other multi-threaded applications"
 authors = ["Adam Gutglick <adamgsal@gmail.com>"]
-version = "0.0.4"
+version = "0.0.5-rc1"
 edition = "2024"
 repository = "https://github.com/adamgs/cuckoo"
 license = "MIT"
