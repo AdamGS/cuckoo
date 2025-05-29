@@ -21,6 +21,8 @@ use dashmap::DashMap;
 
 use pin_project_lite::pin_project;
 
+pub mod futures;
+
 thread_local! {
     static WORK_QUEUE: Worker<Runnable> = Worker::new_fifo();
 }
@@ -64,17 +66,20 @@ impl Runtime {
     /// Background threads execute tasks that are spawned in the background, allowing foreground threads to keep doing other work.
     pub fn new(background_threads: usize) -> Self {
         let injector: Arc<Injector<Runnable>> = Arc::new(Injector::new());
-        for _ in 0..background_threads {
-            std::thread::spawn({
-                let injector = Arc::clone(&injector);
-                move || {
-                    loop {
-                        if let Some(task) = injector.steal().success() {
-                            task.run();
+        for idx in 0..background_threads {
+            thread::Builder::new()
+                .name(format!("cuckoo-background-thread-{idx}"))
+                .spawn({
+                    let injector = Arc::clone(&injector);
+                    move || {
+                        loop {
+                            if let Some(task) = injector.steal().success() {
+                                task.run();
+                            }
                         }
                     }
-                }
-            });
+                })
+                .expect("Failed to spawn background thread");
         }
         Self {
             injector,
@@ -129,10 +134,12 @@ impl Handle {
             let stealers = Arc::clone(&self.stealers);
             move |runnable| {
                 WORK_QUEUE.with(|q| {
-                    // Make sure this thread's stealer is populated
-                    stealers
-                        .entry(thread::current().id())
-                        .or_insert(q.stealer());
+                    let current_thread_id = thread::current().id();
+                    if !stealers.contains_key(&current_thread_id) {
+                        // Make sure this thread's stealer is populated
+                        stealers.entry(current_thread_id).or_insert(q.stealer());
+                    }
+
                     q.push(runnable);
                 })
             }
@@ -147,7 +154,7 @@ impl Handle {
             }
         }
 
-        futures::executor::block_on(task)
+        ::futures::executor::block_on(task)
     }
 
     /// Spawn a future to run in the background. The future can make progress by any participating thread.
