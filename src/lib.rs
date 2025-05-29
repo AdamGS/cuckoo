@@ -15,13 +15,14 @@ use std::{
     thread::{self, ThreadId},
 };
 
-use async_task::{Runnable, Task};
+use async_task::Runnable;
 use crossbeam::deque::{Injector, Stealer, Worker};
 use dashmap::DashMap;
 
-use pin_project_lite::pin_project;
-
 pub mod futures;
+mod join_handle;
+
+pub use join_handle::*;
 
 thread_local! {
     static WORK_QUEUE: Worker<Runnable> = Worker::new_fifo();
@@ -40,24 +41,6 @@ pub struct Runtime {
 pub struct Handle {
     injector: Arc<Injector<Runnable>>,
     stealers: Arc<DashMap<ThreadId, Stealer<Runnable>>>,
-}
-
-pin_project! {
-    pub struct JoinHandle<T> {
-        #[pin]
-        task: Task<T>,
-    }
-}
-
-impl<T> Future for JoinHandle<T> {
-    type Output = T;
-
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        self.project().task.poll(cx)
-    }
 }
 
 impl Runtime {
@@ -106,7 +89,7 @@ impl Runtime {
         let schedule = move |runnable| injector.push(runnable);
         let (runnable, task) = async_task::spawn(future, schedule);
         runnable.schedule();
-        JoinHandle { task }
+        JoinHandle { task: Some(task) }
     }
 
     /// Run a future, blocking the current thread until its done.
@@ -169,7 +152,7 @@ impl Handle {
         let schedule = move |runnable| injector.push(runnable);
         let (runnable, task) = async_task::spawn(future, schedule);
         runnable.schedule();
-        JoinHandle { task }
+        JoinHandle { task: Some(task) }
     }
 
     fn find_task(&self) -> Option<Runnable> {
